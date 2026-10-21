@@ -20,6 +20,8 @@ import {
 } from './model.ts';
 import type { BoardData, FlowNode, Item, LinkedPr, StartedThread, Status, Track, UpdateStep } from './model.ts';
 import { applicability, ITEM_KINDS } from './add-item.ts';
+import { BRAND_MARK, renderRelationshipOutline } from './prototype-30.ts';
+import type { Variant } from './prototype-30.ts';
 
 export type View = 'board' | 'flow';
 export type FlowTab = 'all' | 'bug' | 'feat' | 'vis' | 'fog';
@@ -29,6 +31,8 @@ export interface UiState {
   flowTab: FlowTab;
   /** Open or closed, by <details> id, for the ones the user toggled since the page loaded. */
   toggled: Record<string, boolean>;
+  /** PROTOTYPE #30: which layout variant to render. */
+  variant?: Variant;
 }
 
 export interface RenderOptions {
@@ -44,6 +48,8 @@ export interface RenderOptions {
   actions?: Record<string, ItemAction>;
   /** What this page knows about an update that the server can't report: its own request, or a board that didn't come back. */
   updateView?: UpdateView | null;
+  /** Results this page has dismissed or let expire: `update-<finishedAt>`, `refused`, `lost`. */
+  dismissed?: readonly string[];
 }
 
 export type UpdateView = { phase: 'starting' } | { phase: 'refused'; message: string } | { phase: 'lost' };
@@ -71,7 +77,7 @@ export interface ItemAction {
   thread?: StartedThread;
 }
 
-export const DEFAULT_UI: UiState = { view: 'board', flowTab: 'all', toggled: {} };
+export const DEFAULT_UI: UiState = { view: 'board', flowTab: 'all', toggled: {}, variant: '1' };
 
 // ---------- small helpers ----------
 
@@ -209,7 +215,7 @@ function card(item: Item, data: BoardData, now: number, extra = '', action = '')
     )
     .join('');
   const foot = hint || prs ? `<p class="foot">${hint ? `<span class="hint">${esc(hint)}</span>` : ''}${prs}</p>` : '';
-  return `<article class="card${AMBER_STATUSES.includes(item.status) ? ' amber' : ''}">
+  return `<article class="card${AMBER_STATUSES.includes(item.status) ? ' amber' : ''}" data-anchor="${esc(item.id)}">
 <div class="meta">${platformBadge(item, data)}${kindPill(item)}${blocked}${subs}${action}</div>
 ${titleLink(item)}
 ${parent}${stepBar(item.status)}${foot}${extra}
@@ -230,7 +236,7 @@ function cards(items: Item[], data: BoardData, now: number, empty: string, extra
 
 /** List and Done rows show every label; sub-issue rows keep the card's kind pill. */
 function row(item: Item, data: BoardData, trailing = '', withPlatform = true, pills: 'labels' | 'kind' = 'labels'): string {
-  return `<li class="row-item">${withPlatform ? platformBadge(item, data) : ''}${titleLink(item, 'row-title')}${pills === 'labels' ? labelPills(item) : kindPill(item)}${trailing}</li>`;
+  return `<li class="row-item" data-anchor="${esc(item.id)}">${withPlatform ? platformBadge(item, data) : ''}${titleLink(item, 'row-title')}${pills === 'labels' ? labelPills(item) : kindPill(item)}${trailing}</li>`;
 }
 
 function actionError(action: ItemAction | undefined): string {
@@ -280,17 +286,26 @@ function updateButton(data: BoardData, opts: RenderOptions): string {
 }
 
 /** The update this page or a terminal started: its steps as they finish, then its result. */
+/** PROTOTYPE #30: a close button for a notice or a failure. */
+function dismiss(key: string): string {
+  return `<button type="button" class="dismiss" data-dismiss="${esc(key)}" aria-label="Dismiss">&#215;</button>`;
+}
+
 function updateBanner(data: BoardData, opts: RenderOptions): string {
   const view = opts.updateView;
   const update = data.codeUpdate;
-  if (view?.phase === 'lost' && update) {
-    return `<div class="banner" role="alert"><strong>The board didn't restart.</strong> Check <code>${esc(update.logs.board)}</code> and <code>${esc(update.logs.update)}</code>, then run <code>${esc(update.command)}</code> in a terminal. <button type="button" class="copy" data-copy="${esc(update.command)}" aria-label="Copy board update command">Copy</button></div>`;
+  const dismissed = opts.dismissed ?? [];
+  if (view?.phase === 'lost' && update && !dismissed.includes('lost')) {
+    return `<div class="banner" role="alert">${dismiss('lost')}<strong>The board didn't restart.</strong> Check <code>${esc(update.logs.board)}</code> and <code>${esc(update.logs.update)}</code>, then run <code>${esc(update.command)}</code> in a terminal. <button type="button" class="copy" data-copy="${esc(update.command)}" aria-label="Copy board update command">Copy</button></div>`;
   }
-  if (view?.phase === 'refused') return `<div class="banner" role="alert"><strong>The update didn't start.</strong> ${esc(view.message)}</div>`;
+  if (view?.phase === 'refused' && !dismissed.includes('refused')) return `<div class="banner" role="alert">${dismiss('refused')}<strong>The update didn't start.</strong> ${esc(view.message)}</div>`;
   const progress = data.update;
   if (!progress) return '';
   const finishedAt = progress.finishedAt ? Date.parse(progress.finishedAt) : NaN;
-  if (progress.state !== 'running' && !(opts.now - finishedAt <= UPDATE_RESULT_MS)) return '';
+  // A success clears itself (the page dismisses it after a few seconds); a failure stays until dismissed or replaced.
+  const key = `update-${progress.finishedAt}`;
+  if (progress.state !== 'running' && dismissed.includes(key)) return '';
+  if (progress.state === 'done' && !(opts.now - finishedAt <= UPDATE_RESULT_MS)) return '';
   const current = progress.current
     ? `<li class="${progress.state === 'failed' ? 'failed' : 'current'}" aria-current="step">${esc(progress.current)}</li>`
     : '';
@@ -302,12 +317,12 @@ function updateBanner(data: BoardData, opts: RenderOptions): string {
     const result = progress.finished.includes('restart') && progress.revision
       ? `The board now runs <code>${esc(progress.revision.slice(0, 7))}</code>, with the skills and checklists from main.`
       : 'The board was already current; the skills and checklists are updated from main.';
-    return `<div class="banner update-progress capture-success" role="status"><strong>Update finished.</strong> ${result}${steps}</div>`;
+    return `<div class="banner update-progress capture-success" role="status" data-expires="${esc(key)}">${dismiss(key)}<strong>Update finished.</strong> ${result}${steps}</div>`;
   }
   const step = progress.current && progress.current in UPDATE_HINTS ? progress.current : 'done';
   const tail = progress.logTail ? `<pre class="update-log">${esc(progress.logTail)}</pre>` : '';
   const log = update ? ` Full log: <code>${esc(update.logs.update)}</code>` : '';
-  return `<div class="banner update-progress" role="alert"><strong>Update failed at ${esc(step)}.</strong> ${esc(progress.error ?? '')}${steps}${tail}<p class="update-hint">${esc(UPDATE_HINTS[step])}${log}</p></div>`;
+  return `<div class="banner update-progress" role="alert">${dismiss(key)}<strong>Update failed at ${esc(step)}.</strong> ${esc(progress.error ?? '')}${steps}${tail}<p class="update-hint">${esc(UPDATE_HINTS[step])}${log}</p></div>`;
 }
 
 export function renderHeader(data: BoardData, opts: RenderOptions): string {
@@ -326,17 +341,20 @@ export function renderHeader(data: BoardData, opts: RenderOptions): string {
       ? `<div class="banner code-update" role="status"><strong>Board update available.</strong> ${updateButton(data, opts)}</div>`
       : `<div class="banner code-update" role="status"><strong>Board update available.</strong> Run <code>${esc(update.command)}</code> <button type="button" class="copy" data-copy="${esc(update.command)}" aria-label="Copy board update command">Copy</button></div>`);
   }
+  // PROTOTYPE #30: successes show as toasts that float over the page, so they never move it.
+  const toasts: string[] = [];
   const progress = updateBanner(data, opts);
-  if (progress) banners.push(progress);
+  if (progress) (progress.includes('data-expires') ? toasts : banners).push(progress);
   if (update && (update.error || update.behind === null)) {
     banners.push(`<div class="banner" role="status"><strong>${update.error ? 'Board update check failed.' : 'Checking for board updates…'}</strong>${update.error ? ` ${esc(update.error)}` : ''}</div>`);
   }
+  // PROTOTYPE #30: action notices clear themselves after a few seconds, or with their close button.
   if (opts.notice?.verb === 'Abandoned') {
     // The issue is gone, so there is nothing to link to.
-    banners.push(`<div class="banner capture-success" role="status">${esc(abandonPrompt(opts.notice.item).done)}</div>`);
+    toasts.push(`<div class="banner capture-success notice" role="status">${dismiss('notice')}${esc(abandonPrompt(opts.notice.item).done)}</div>`);
   } else if (opts.notice) {
     const { verb, item, to } = opts.notice;
-    banners.push(`<div class="banner capture-success" role="status">${verb} ${titleLink(item)} to ${esc(to)}.</div>`);
+    toasts.push(`<div class="banner capture-success notice" role="status">${dismiss('notice')}${verb} ${titleLink(item)} to ${esc(to)}. <button type="button" class="copy view-item" data-view-item="${esc(item.id)}">View item</button></div>`);
   }
   if (opts.clientError) {
     banners.push(
@@ -356,7 +374,7 @@ export function renderHeader(data: BoardData, opts: RenderOptions): string {
     ? `<a href="${esc(data.project.url)}" target="_blank" rel="noopener">${esc(data.project.title)} project</a>`
     : esc(data.project.title);
   return `<header class="top">
-<div class="title-row"><h1>Mux factory board</h1><p class="refreshed">${refreshed} · ${project}</p><span class="header-actions"><button type="button" class="copy add-item" data-add-item>Add item</button>${update?.updatable && !onBanner ? updateButton(data, opts) : ''}</span></div>
+<div class="title-row"><h1>${BRAND_MARK}<span>Mux factory board</span></h1><p class="refreshed">${refreshed} · ${project}</p><span class="header-actions"><button type="button" class="copy add-item" data-add-item>Add item</button>${update?.updatable && !onBanner ? updateButton(data, opts) : ''}</span></div>
 <ul class="totals" aria-label="Counts">
 <li class="${counts.needsYou ? 'amber' : ''}"><b>${counts.needsYou}</b> need you</li>
 <li><b>${counts.inFlight}</b> in flight</li>
@@ -365,6 +383,7 @@ export function renderHeader(data: BoardData, opts: RenderOptions): string {
 <li><b>${counts.total}</b> items</li>
 </ul>
 ${banners.join('\n')}
+${toasts.length ? `<div class="toasts">${toasts.join('\n')}</div>` : ''}
 </header>`;
 }
 
@@ -463,9 +482,12 @@ export function renderBoardView(data: BoardData, opts: RenderOptions): string {
     .filter((i) => isRecentlyDone(i, now))
     .sort((a, b) => (b.closedAt ?? b.updatedAt).localeCompare(a.closedAt ?? a.updatedAt));
 
+  const variant = ui.variant ?? '1';
   const queuedExtra = (i: Item) => {
     const cmd = workCommand(i);
     if (!cmd) return '<p class="foot"><span class="hint">This draft needs an issue before it can start. Convert it to an issue in a repo.</span></p>';
+    // PROTOTYPE #30 variant 3: the command folds into a button; its text stays in the tooltip.
+    if (variant === '3') return `${startControl(i, data, opts.actions?.[i.id]).message}<p class="foot"><button type="button" class="copy copy-cmd" data-copy="${esc(cmd)}" title="${esc(cmd)}" aria-label="Copy ${esc(cmd)}">Copy /mux-work command</button></p>`;
     return `${startControl(i, data, opts.actions?.[i.id]).message}<div class="cmd"><code>${esc(cmd)}</code><button type="button" class="copy" data-copy="${esc(cmd)}" aria-label="Copy ${esc(cmd)}">Copy</button></div>`;
   };
   const queuedAction = (i: Item) => (workCommand(i) ? startControl(i, data, opts.actions?.[i.id]).button : '');
@@ -486,6 +508,16 @@ export function renderBoardView(data: BoardData, opts: RenderOptions): string {
     })
     .join('')}</div>`;
 
+  // PROTOTYPE #30 variants 2 and 3: List is one compact box, a thin header per platform, empty platforms named once.
+  const listRow = (i: Item) => row(i, data, queueButton(i, data, opts.actions?.[i.id]) + abandonButton(i, data, opts.actions?.[i.id]), false);
+  const withItems = platforms.filter((p) => list.some((i) => platformOf(i, data.repos) === p));
+  const without = platforms.filter((p) => !withItems.includes(p));
+  const compactList = `<div class="list-box">${withItems.map((p) => {
+    const mine = list.filter((i) => platformOf(i, data.repos) === p);
+    const id = listGroupId(p);
+    return `<details class="list-group" id="${id}"${isOpen(ui, id, true)}><summary><span class="plat plat-${esc(slug(p))}">${esc(p)}</span><span class="count">${mine.length}</span></summary><ul class="rows">${mine.map(listRow).join('')}</ul></details>`;
+  }).join('')}${list.length ? '' : '<p class="empty">Nothing in List.</p>'}${without.length ? `<p class="list-none">Nothing in List for ${esc(without.join(', '))}.</p>` : ''}</div>`;
+
   const doneBody = `<details class="platform" id="done-list"${isOpen(ui, 'done-list', false)}><summary>Show ${plural(done.length, 'item')} closed in the last 7 days</summary>${
     done.length
       ? `<ul class="rows">${done
@@ -500,22 +532,22 @@ export function renderBoardView(data: BoardData, opts: RenderOptions): string {
       : '<p class="empty">Nothing closed this week.</p>'
   }</details>`;
 
-  return [
-    section(
+  const sections = {
+    needsYou: section(
       'needs-you',
       'Needs you',
       needsYou.length,
       cards(needsYou, data, now, 'Nothing needs you right now.'),
       'Needs you, Verify and Ready to merge: only you can move these',
     ),
-    section(
+    inFlight: section(
       'in-flight',
       'In flight',
       inFlight.length,
       cards(inFlight, data, now, 'Nothing is being shaped, built or reviewed.'),
       'Shaping, Ready, In progress, Review',
     ),
-    section(
+    concepts: section(
       'concepts',
       'Concepts',
       concepts.length,
@@ -523,16 +555,21 @@ export function renderBoardView(data: BoardData, opts: RenderOptions): string {
         ? `<div class="cards wide">${concepts.map((c) => conceptBlock(c, data, now)).join('\n')}</div>`
         : '<p class="empty">No open concepts.</p>',
     ),
-    section(
+    queued: section(
       'queued',
       'Queued',
       queued.length,
       cards(queued, data, now, 'Nothing queued. Press Queue on a List item to queue it.', queuedExtra, queuedAction),
-      'Start opens a mux-work thread in T3 Code',
+      variant === '1' ? 'Start opens a mux-work thread in T3 Code' : 'Up next. Start opens a mux-work thread in T3 Code',
     ),
-    section('list', 'List', list.length, listBody),
-    section('done', 'Done', done.length, doneBody, 'last 7 days'),
-  ].join('\n');
+    list: section('list', 'List', list.length, variant === '1' ? listBody : compactList, variant === '1' ? '' : 'Backlog. Queue moves an item up to Queued'),
+    done: section('done', 'Done', done.length, doneBody, 'last 7 days'),
+  };
+  if (variant === '1') {
+    return [sections.needsYou, sections.inFlight, sections.concepts, sections.queued, sections.list, sections.done].join('\n');
+  }
+  return [sections.needsYou, sections.inFlight, sections.queued, sections.concepts,
+    `<div class="backlog">${sections.list}\n${sections.done}</div>`].join('\n');
 }
 
 // ---------- flow view ----------
@@ -692,12 +729,12 @@ export function renderApp(data: BoardData, opts: RenderOptions): string {
     `<button type="button" role="tab" class="vtab" id="tab-${v}" data-view="${v}" aria-controls="panel-${v}" aria-selected="${view === v}" tabindex="${view === v ? 0 : -1}">${label}</button>`;
   return `${renderHeader(data, opts)}
 <nav class="vtabs" role="tablist" aria-label="Views">${tab('board', 'Board')}${tab('flow', 'Flow')}</nav>
-<main>
+<main class="v${esc(opts.ui.variant ?? '1')}">
 <div class="panel" role="tabpanel" id="panel-board" aria-labelledby="tab-board"${view === 'board' ? '' : ' hidden'}>
 ${renderBoardView(data, opts)}
 </div>
 <div class="panel" role="tabpanel" id="panel-flow" aria-labelledby="tab-flow"${view === 'flow' ? '' : ' hidden'}>
-${renderFlowView(data, opts)}
+${renderRelationshipOutline(data, opts.now, opts.ui.toggled['flow-loose'] ?? false)}
 </div>
 </main>`;
 }

@@ -8,6 +8,8 @@ import type { BoardData } from './model.ts';
 import { validateDraft } from './add-item.ts';
 import type { CreationResult, ItemDraft } from './add-item.ts';
 import type { StartResult } from './t3.ts';
+import { VARIANTS, variantOf } from './prototype-30.ts';
+import type { Item, UpdateProgress } from './model.ts';
 
 const POLL_MS = 15_000;
 const UPDATE_POLL_MS = 1_000;
@@ -35,15 +37,99 @@ const ui: UiState = {
   ...DEFAULT_UI,
   view: location.hash === '#flow' ? 'flow' : 'board',
   toggled: {},
+  variant: variantOf(location.search),
 };
+
+// ---------- PROTOTYPE #30: notices that clear themselves ----------
+
+/** How long a success stays on screen. Failures and ongoing warnings stay. */
+const SUCCESS_MS = 5_000;
+const DISMISSED_KEY = 'mux-board-dismissed';
+const dismissed: string[] = (() => {
+  try { return JSON.parse(localStorage.getItem(DISMISSED_KEY) ?? '[]') as string[]; } catch { return []; }
+})();
+let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+const expiring = new Set<string>();
+
+function dismissKey(key: string): void {
+  if (key === 'notice') {
+    notice = null;
+    clearTimeout(noticeTimer);
+  } else if (!dismissed.includes(key)) {
+    dismissed.push(key);
+    if (key.startsWith('update-')) localStorage.setItem(DISMISSED_KEY, JSON.stringify(dismissed.filter((k) => k.startsWith('update-')).slice(-20)));
+  }
+  render();
+}
+
+function setNotice(next: RenderOptions['notice']): void {
+  notice = next;
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => dismissKey('notice'), SUCCESS_MS);
+}
+
+/** Starts the clock on a finished update's toast the first time this page shows it. */
+function scheduleExpiring(): void {
+  app.querySelectorAll<HTMLElement>('[data-expires]').forEach((el) => {
+    const key = el.dataset.expires!;
+    if (expiring.has(key)) return;
+    expiring.add(key);
+    setTimeout(() => dismissKey(key), SUCCESS_MS);
+  });
+}
+
+// ---------- PROTOTYPE #30: keep the reading position ----------
+
+type Anchor = { keys: string[]; index: number; top: number } | null;
+
+function anchorKeys(): { els: HTMLElement[]; keys: string[] } {
+  const els = [...app.querySelectorAll<HTMLElement>('[data-anchor]')].filter((el) => el.getClientRects().length > 0);
+  const seen = new Map<string, number>();
+  const keys = els.map((el) => {
+    const key = el.dataset.anchor!;
+    const n = seen.get(key) ?? 0;
+    seen.set(key, n + 1);
+    return `${key}|${n}`;
+  });
+  return { els, keys };
+}
+
+/** The first item at least partly in view, and where it sits. Nothing at the very top: stay there. */
+function captureAnchor(): Anchor {
+  if (window.scrollY < 1) return null;
+  const { els, keys } = anchorKeys();
+  const index = els.findIndex((el) => el.getBoundingClientRect().bottom > 0);
+  if (index < 0) return null;
+  return { keys, index, top: els[index]!.getBoundingClientRect().top };
+}
+
+/** Puts the same item back in the same place; if it left, the nearest item that survived. */
+function restoreAnchor(anchor: Anchor): void {
+  if (!anchor) return;
+  const { els, keys } = anchorKeys();
+  const at = new Map(keys.map((k, i) => [k, els[i]!]));
+  for (let d = 0; d < anchor.keys.length; d++) {
+    for (const i of d ? [anchor.index + d, anchor.index - d] : [anchor.index]) {
+      const el = at.get(anchor.keys[i] ?? '');
+      if (!el) continue;
+      window.scrollBy(0, el.getBoundingClientRect().top - anchor.top);
+      return;
+    }
+  }
+}
 
 function render(): void {
   const focusKey = (document.activeElement as HTMLElement | null)?.dataset?.focusKey;
   const { scrollX, scrollY } = window;
-  app.innerHTML = renderApp(data, { now: Date.now(), ui, clientError, notice, actions, updateView });
+  const anchor = captureAnchor();
+  if (proto) applySim();
+  app.innerHTML = renderApp(data, { now: Date.now(), ui, clientError, notice, actions, updateView, dismissed });
   tagFocusable();
   window.scrollTo(scrollX, scrollY);
+  restoreAnchor(anchor);
+  // preventScroll: restoring focus must never move the page to the focused control.
   if (focusKey) focusByKey(focusKey);
+  scheduleExpiring();
 }
 
 function tagFocusable(): void {
@@ -63,7 +149,7 @@ function focusKeyOf(el: HTMLElement): string {
 }
 
 function focusByKey(key: string): void {
-  app.querySelector<HTMLElement>(`[data-focus-key="${CSS.escape(key)}"]`)?.focus();
+  app.querySelector<HTMLElement>(`[data-focus-key="${CSS.escape(key)}"]`)?.focus({ preventScroll: true });
 }
 
 function schedulePoll(): void {
@@ -116,7 +202,7 @@ function followUpdate(): boolean {
 
 function setView(view: View, focus = false): void {
   ui.view = view;
-  history.replaceState(null, '', view === 'flow' ? '#flow' : location.pathname);
+  history.replaceState(null, '', `${location.pathname}${location.search}${view === 'flow' ? '#flow' : ''}`);
   render();
   if (focus) app.querySelector<HTMLElement>(`[data-view="${view}"]`)?.focus();
 }
@@ -163,7 +249,6 @@ type Submission =
   | { phase: 'editing' | 'complete' }
   | { phase: 'pending' | 'retry' | 'uncertain'; attempt: Attempt };
 let submission: Submission = { phase: 'editing' };
-let revealList = false;
 
 function message(text: string, url?: string | null, label = 'View created issue'): void {
   resultBox.replaceChildren(document.createTextNode(text));
@@ -198,13 +283,9 @@ form.addEventListener('input', () => {
   if (submission.phase === 'editing') message('');
 });
 newItem.addEventListener('click', resetDraft);
+// PROTOTYPE #30: closing the form keeps the reading position; the toast's View item jumps on request.
 dialog.addEventListener('close', () => {
-  const target = revealList && notice
-    ? document.querySelector<HTMLElement>(`#${CSS.escape(listGroupId(platformOf(notice.item, data.repos)))} > summary`)
-    : app.querySelector<HTMLElement>('[data-add-item]');
-  revealList = false;
-  target?.focus();
-  target?.scrollIntoView({ block: 'nearest' });
+  app.querySelector<HTMLElement>('[data-add-item]')?.focus({ preventScroll: true });
 });
 
 form.addEventListener('submit', (event) => {
@@ -233,16 +314,26 @@ async function submitItem(): Promise<void> {
   message(retrying ? 'Finishing this submission…' : 'Creating the issue and adding it to List…');
   updateSubmission();
   try {
+    if (proto) {
+      // PROTOTYPE #30: sample mode never writes; the new item lives only in this page.
+      await new Promise((r) => setTimeout(r, 400));
+      const item = simItem(attempt.draft.title, attempt.draft.repo, [attempt.draft.kind, ...attempt.draft.labels]);
+      sim.added.push(item);
+      mutationVersion++;
+      setNotice({ verb: 'Added', item, to: 'List' });
+      submission = { phase: 'complete' };
+      setView('board');
+      dialog.close();
+      return;
+    }
     const response = await fetch('/api/items', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(attempt) });
     const result = await response.json() as CreationResult & { board?: BoardData };
     if (result.item && result.board) {
       mutationVersion++;
       data = result.board;
-      notice = { verb: 'Added', item: result.item, to: 'List' };
-      ui.toggled[listGroupId(platformOf(result.item, data.repos))] = true;
+      setNotice({ verb: 'Added', item: result.item, to: 'List' });
       submission = { phase: 'complete' };
-      revealList = true;
       setView('board');
       dialog.close();
     } else {
@@ -262,6 +353,7 @@ async function submitItem(): Promise<void> {
 /** Posts an item action and returns the server's answer, or a message when the server can't be reached. */
 async function postAction<T extends { error: string | null; board?: BoardData }>(path: string, body: object): Promise<T> {
   mutationVersion++;
+  if (proto) return simulate(path, body) as unknown as T;
   try {
     const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const result = await response.json() as T;
@@ -293,7 +385,7 @@ async function queueItem(button: HTMLElement): Promise<void> {
   if (result.error || !item) actions[itemId] = { phase: 'error', message: result.error ?? 'The item left the board.' };
   else {
     delete actions[itemId];
-    notice = { verb: 'Moved', item, to: 'Queued' };
+    setNotice({ verb: 'Moved', item, to: 'Queued' });
   }
   render();
   if (!result.error && document.activeElement === document.body) focusByKey(nextFocus);
@@ -369,13 +461,20 @@ async function abandonItem(itemId: string): Promise<void> {
   if (result.error) actions[itemId] = { phase: 'error', kind: 'abandon', message: result.error };
   else {
     delete actions[itemId];
-    notice = { verb: 'Abandoned', item };
+    setNotice({ verb: 'Abandoned', item });
   }
   render();
   if (!result.error && document.activeElement === document.body) focusByKey(nextFocus);
 }
 
 app.addEventListener('click', (event) => {
+  const extra = (event.target as HTMLElement).closest<HTMLElement>('[data-dismiss],[data-view-item],[data-outline-jump]');
+  if (extra?.dataset.dismiss) return dismissKey(extra.dataset.dismiss);
+  if (extra?.dataset.viewItem) return viewItem(extra.dataset.viewItem);
+  if (extra?.dataset.outlineJump) {
+    event.preventDefault();
+    return jumpTo(document.getElementById(`o-${extra.dataset.outlineJump}`));
+  }
   const target = (event.target as HTMLElement).closest<HTMLElement>('[data-view],[data-flow-tab],[data-copy],[data-queue],[data-start],[data-abandon],[data-add-item],[data-update]');
   if (!target) return;
   if (target.hasAttribute('data-add-item')) {
@@ -414,7 +513,107 @@ app.addEventListener(
 
 window.addEventListener('hashchange', () => setView(location.hash === '#flow' ? 'flow' : 'board'));
 
-if (ui.view !== DEFAULT_UI.view) render();
+// ---------- PROTOTYPE #30: explicit jumps ----------
+
+function jumpTo(el: HTMLElement | null): void {
+  if (!el) return;
+  el.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  el.classList.remove('anchor-flash');
+  void el.offsetWidth;
+  el.classList.add('anchor-flash');
+  el.querySelector<HTMLElement>('a, button')?.focus({ preventScroll: true });
+}
+
+/** View item: the one deliberate move. Opens the item's List group if it's closed. */
+function viewItem(itemId: string): void {
+  if (ui.view !== 'board') setView('board');
+  const item = data.items.find((i) => i.id === itemId);
+  if (item?.status === 'List') {
+    const id = listGroupId(platformOf(item, data.repos));
+    if (ui.toggled[id] === false) { ui.toggled[id] = true; render(); }
+  }
+  jumpTo(app.querySelector<HTMLElement>(`#panel-board [data-anchor="${CSS.escape(itemId)}"]`));
+}
+
+// ---------- PROTOTYPE #30: sample-mode stand-ins for every write ----------
+
+const proto = data.capture?.enabled === false;
+const sim = { queued: new Set<string>(), abandoned: new Set<string>(), added: [] as Item[], started: {} as Record<string, { threadId: string; title: string }>,
+  refreshed: false, update: null as UpdateProgress | null };
+let simCount = 0;
+
+function simItem(title: string, repo: string | null, labels: string[]): Item {
+  simCount++;
+  return { id: `PROTO_${simCount}`, status: 'List', type: repo ? 'Issue' : 'DraftIssue', number: repo ? 900 + simCount : null, title, url: null, repo,
+    labels: labels.filter(Boolean), state: repo ? 'OPEN' : null, parent: null, subIssues: { total: 0, completed: 0 }, blockedBy: 0,
+    updatedAt: new Date().toISOString(), closedAt: null, linkedPrs: [] };
+}
+
+/** Re-applies this page's simulated changes on top of whatever the sample server sends. */
+function applySim(): void {
+  if (data.capture) data.capture.enabled = true;
+  let items = data.items.filter((i) => !sim.abandoned.has(i.id) && !sim.added.some((a) => a.id === i.id));
+  items = [...items, ...sim.added.filter((i) => !sim.abandoned.has(i.id))].map((i) => (sim.queued.has(i.id) ? { ...i, status: 'Queued' as const } : i));
+  if (sim.refreshed) {
+    items = items.filter((i) => !(i.repo === 'maddec01/mux-apple' && i.number === 22));
+    if (!items.some((i) => i.id === 'PROTO_refresh')) {
+      items.unshift({ ...simItem('Added by a refresh: subtitle offset drifts after seeking', 'maddec01/mux-server', ['bug']), id: 'PROTO_refresh', status: 'Needs you', number: 155 });
+    }
+  }
+  data.items = items;
+  data.started = { ...data.started, ...sim.started };
+  if (sim.update) data.update = sim.update;
+}
+
+function simulate(path: string, body: object): { error: string | null; thread?: { threadId: string; title: string } } {
+  const { itemId } = body as { itemId?: string };
+  if (path === '/api/queue' && itemId) sim.queued.add(itemId);
+  else if (path === '/api/abandon' && itemId) sim.abandoned.add(itemId);
+  else if (path === '/api/start' && itemId) {
+    const thread = { threadId: `proto-${itemId.slice(-6)}`, title: 'Prototype thread (not started)' };
+    sim.started[itemId] = thread;
+    return { error: null, thread };
+  } else return { error: 'Not simulated in the prototype.' };
+  mutationVersion++;
+  return { error: null };
+}
+
+function simulateUpdate(state: 'done' | 'failed'): void {
+  const now = new Date().toISOString();
+  sim.update = { state, pid: 0, finished: state === 'done' ? ['check', 'fetch', 'install', 'restart', 'health', 'skills', 'profiles'] : ['check', 'fetch'],
+    current: state === 'done' ? null : 'install', startedAt: now, finishedAt: now, revision: 'abc1234def', error: state === 'failed' ? 'pnpm install exited with 1.' : null,
+    logTail: state === 'failed' ? 'ERR_PNPM_FETCH_404  GET https://registry.npmjs.org/example: Not Found (fictional)' : null };
+  render();
+}
+
+const bar = document.querySelector<HTMLElement>('.proto-bar');
+function stepVariant(step: number): void {
+  const i = VARIANTS.findIndex((v) => v.key === ui.variant);
+  const next = VARIANTS[(i + step + VARIANTS.length) % VARIANTS.length]!;
+  ui.variant = next.key;
+  const params = new URLSearchParams(location.search);
+  params.set('variant', next.key);
+  history.replaceState(null, '', `${location.pathname}?${params}${location.hash}`);
+  bar!.querySelector('.proto-label')!.innerHTML = `<b>${next.key}</b> ${next.name}`;
+  render();
+}
+if (bar) {
+  bar.addEventListener('click', (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLElement>('button');
+    if (button?.dataset.protoStep) stepVariant(Number(button.dataset.protoStep));
+    else if (button?.dataset.protoSim === 'refresh') { sim.refreshed = !sim.refreshed; render(); }
+    else if (button?.dataset.protoSim === 'update-done') simulateUpdate('done');
+    else if (button?.dataset.protoSim === 'update-failed') simulateUpdate('failed');
+  });
+  document.addEventListener('keydown', (event) => {
+    const t = event.target as HTMLElement;
+    if (!['ArrowLeft', 'ArrowRight'].includes(event.key) || event.metaKey || event.altKey || event.ctrlKey) return;
+    if (t.closest('input, textarea, select, [contenteditable], [data-view], dialog')) return;
+    stepVariant(event.key === 'ArrowLeft' ? -1 : 1);
+  });
+}
+
+if (ui.view !== DEFAULT_UI.view || proto) render();
 else tagFocusable();
 resetDraft();
 followUpdate();

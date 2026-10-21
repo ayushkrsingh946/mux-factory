@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { renderAbandonDialog, renderAddItemForm, renderApp } from './render.ts';
 import type { RenderOptions } from './render.ts';
 import type { BoardData } from './model.ts';
+import { BRAND_MARK, renderSwitcher } from './prototype-30.ts';
 
 const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
 
@@ -20,7 +21,7 @@ export function renderPage(data: BoardData, opts: RenderOptions): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Mux factory board</title>
-<link rel="icon" href="data:,">
+<link rel="icon" href="data:image/svg+xml,${encodeURIComponent(BRAND_MARK.replace('currentColor', '#71717b').replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '))}">
 <style>
 ${css}</style>
 </head>
@@ -30,6 +31,7 @@ ${renderApp(data, opts)}
 </div>
 ${renderAddItemForm(data)}
 ${renderAbandonDialog()}
+${data.capture?.enabled === false ? renderSwitcher(opts.ui.variant ?? '1') : ''}
 <script id="board-data" type="application/json">${scriptJson(data)}</script>
 <script type="module" src="/assets/client.ts"></script>
 </body>

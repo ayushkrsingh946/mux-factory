@@ -16,6 +16,7 @@ import type { StartResult } from './t3.ts';
 import type { CreationProgress, CreationResult, ItemDraft } from './add-item.ts';
 import { renderPage } from './page.ts';
 import { DEFAULT_UI } from './render.ts';
+import { variantOf } from './prototype-30.ts';
 import { canAbandon, workCommand } from './model.ts';
 import { revisionCheck } from './revision.ts';
 import { lockHolder, readProgress, updatePaths } from './update-state.ts';
@@ -92,7 +93,7 @@ async function refresh(): Promise<void> {
 }
 
 // Browser modules: the shared template is served as JS by stripping its types.
-const ASSETS = new Map(['client.ts', 'render.ts', 'model.ts', 'add-item.ts'].map((name) =>
+const ASSETS = new Map(['client.ts', 'render.ts', 'model.ts', 'add-item.ts', 'prototype-30.ts'].map((name) =>
   [name, stripTypeScriptTypes(readFileSync(new URL(`./${name}`, import.meta.url), 'utf8'))]));
 
 const SECURITY_HEADERS = {
@@ -309,7 +310,8 @@ async function abandonListItem(req: IncomingMessage, res: ServerResponse): Promi
 
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (!allowedHost(req)) return send(res, 421, 'text/plain; charset=utf-8', 'Misdirected request\n');
-  const path = new URL(req.url ?? '/', 'http://localhost').pathname;
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const path = url.pathname;
   if (!path.startsWith('/assets/')) state.update = updatable ? readProgress(updates) : null;
   if (req.method === 'POST' && req.headers.origin !== `http://${req.headers.host}`) {
     return json(res, 403, { error: 'Submit from this board page.' });
@@ -323,7 +325,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     return send(res, 405, 'text/plain; charset=utf-8', 'Method not allowed\n');
   }
   if (path === '/') {
-    return send(res, 200, 'text/html; charset=utf-8', renderPage(state, { now: Date.now(), ui: DEFAULT_UI }));
+    return send(res, 200, 'text/html; charset=utf-8', renderPage(state, { now: Date.now(), ui: { ...DEFAULT_UI, variant: variantOf(url.search) } }));
   }
   if (path === '/api/board') return send(res, 200, 'application/json; charset=utf-8', JSON.stringify(state));
   if (path === '/healthz') return json(res, 200, {
