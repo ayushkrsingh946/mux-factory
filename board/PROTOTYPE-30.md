@@ -1,94 +1,97 @@
-# Dashboard design study — issue 30
+# Dashboard design study — issue 30, revision 2
 
-Throwaway UI demonstration on the existing `/` dashboard route. Three directions
-answer the hierarchy/layout question; no direction is selected or validated yet.
-The existing app is the design reference. No external reference was supplied.
+Throwaway UI on `/`, with all mutations simulated in browser memory. Pedro rejected
+Boards A/B/C, selected Flow B's indented relationship outline, and confirmed the
+scope as parent/child plus explicit GitHub blocked-by links, including off-board
+issue references. Never infer dependencies from sibling issues.
 
-From this checkout, run one command:
+Run from this assigned checkout:
 
 ```sh
 pnpm --dir board run prototype:30
 ```
 
-Uses spare port 4318 by default (`BOARD_PORT` can override it). The runner refuses
-4317 and production mode. Board URLs are `http://127.0.0.1:4318/?variant=A`, `B`,
-and `C`; append `#flow` for each relationship view. Use the floating bottom bar or
-left/right arrows to compare. Typing in inputs does not change direction.
+Uses spare port 4318, refuses 4317 and production mode. Current comparison bar
+cycles D/E (also left/right arrows, except while typing). Defaults to D. A/B/C
+remain accessible by query parameter and in commit `4939b47`; they are historical
+rejected alternatives, not the current comparison.
 
-- A, Attention board: existing grouped cards, amber attention area first, full-width
-  concept context, and compact platform lists. Flow branches beneath its concept.
-- B, Work ledger: aligned rows, status gutter, work in the middle, actions at the
-  right; direct comparison and denser scanning. Flow becomes an indented outline.
-- C, Studio workspace: navigation rail, parallel work lanes, and a selected-item
-  inspector. Flow puts the parent beside its decision/build branches.
+- D: `http://127.0.0.1:4318/?variant=D` — full-width register, amber attention strip,
+  next queue immediately below it, then active rows. Compact List is a separate
+  Board-area tab: `?variant=D&area=list`.
+- E: `http://127.0.0.1:4318/?variant=E` — equal active-work lanes, a full-width next
+  queue below them, then a distinctly separated collapsed List.
+- Both: append `#flow` for the same selected indented relationship outline.
 
-All share fixtures, counts, actions, and in-memory state when switched. The common
-contract is to put work ahead of chrome, retain the Board's existing information
-and actions, keep statuses legible without color, and preserve light/dark theme
-tokens. Narrow layouts stack content; item details open a native modal where the
-inline inspector would be below the fold. Native forms/dialogs, focus indicators,
-and keyboard controls remain available. Reject decorative metrics, implied
-dependency edges, fabricated assignees, and throughput charts.
+Both use the entire available window with 28px edge padding (16px narrow),
+horizontal navigation, no sidebar or inspector panel, and no invented wordmark.
+Desktop List rows are about 39px high; narrow rows wrap their titles/actions.
+Duplicate kind/label badges are removed. Kind, labels, issue state, timestamps,
+parent, sub-issues, blocker count, PR/check detail and queued command remain
+accessible in native item-detail dialogs. Queue/Start/Abandon/Add actions remain
+available. Concepts and recent Done are compact expandable supporting sections.
+Existing theme tokens supply light/dark styles and visible keyboard focus.
 
-## Model evidence and fixture assumptions
+The exact SVG path from the read-only sibling source
+`/Users/pedrogomes/Developer/Mux/mux-server/web/src/shared/design-system/display/BrandMark.tsx`
+is embedded unchanged. No sibling files were edited. No external design reference
+was supplied; Pedro's feedback and the product's own mark/tokens are the contract.
 
-`src/model.ts` and `test/sample.json` are the source. `parent` carries a repo and
-issue number, so the prototype joins those exact keys; `subIssues` supplies totals;
-`linkedPrs` supplies explicit links and checks. Kinds come from the same labels as
-the existing board (`concept`, `decision:*`, `build`). No decision-to-build edge
-can be inferred from a shared parent. `blockedBy` is a count, not an identity list.
+## Relationships and fixture boundaries
 
-The #200 concept has 6 reported children / 2 completed. Only 4 children (3 decisions
-and 1 build) appear in the fixture snapshot. The map explicitly labels the 2 absent
-children. Sample issue contents are realistic fixtures, not claims about current
-GitHub state. Fixture time is pinned to 21 October 2026, 10:00 UTC so recent Done
-and check-age states remain comparable. Demo-created numbers start at #901; they
-have no GitHub URL. Creation descriptions are accepted but not persisted.
+Source is `src/model.ts` plus `test/sample.json`. Parent joins use both repository
+and issue number. Concept #200 reports 6 children / 2 complete, while this board
+snapshot contains 4 children. The 2 absent children are explicitly called out.
+PR links are explicit source relationships. Fixture time stays pinned at
+21 October 2026, 10:00 UTC so check ages and recent Done stay comparable.
 
-Open product/API questions for implementation: fetch blocker identities before
-showing dependency edges; decide whether decision→build dependencies are explicit
-GitHub blocking relationships or a new domain relation; decide whether to fetch
-children outside the project. Decision outcomes, assignees, estimates and thread
-links for pre-existing work are not supplied by this model. No UI promises them.
+The source model only contains a `blockedBy` count. The real blocker identity for
+Owner accounts is not invented. A separate, prominently labeled fictional example
+shows EX-01 as parent, EX-02/EX-03 as its children, an explicit EX-03 blocked-by
+EX-02 link, and a fictional off-board `example/auth-service#44` dependency. These
+are static demo references with no outbound GitHub links. Off-board references do
+not become board items. Production needs the GitHub blocked-by identity fields
+(repository, issue number, title, URL), including off-board references. The scope
+is decided; implementing that read model/API work remains outside this prototype.
+Whether to fetch missing concept children remains open.
 
-## Interaction demonstration
+## Behavior contract and safety
 
-The fixture-only runner has no GitHub/updater/T3 imports. It rejects every non-read
-request; its CSP disables browser connections. Queue, Start, Abandon, Add item,
-Refresh and Update are memory-only simulations. Reload resets state. Original
-GitHub issue/PR links are read-only outbound links. Command Copy uses clipboard.
-The bottom demo console exposes the relevant state and can simulate success,
-failure, completed updates, connection loss/recovery, insertion above the reading
-item, removal, creation, and explicit View item. It can reset the demo.
+All actions, refreshes, updates and thread starts stay in memory. No fetch,
+GitHub/updater/T3 imports, persistence, or real update processes. Server rejects
+non-read requests; CSP disables browser connections. Reload resets fixtures.
+Actual fixture issue/PR links are ordinary read-only outbound links. Demo-created
+items start at #901 without a GitHub URL; descriptions are not persisted.
 
-Successful actions and completed-update notices can be closed and expire after
-5000 ms. Failure notices stay until dismissed. Connection warnings stay until
-recovery; update progress stays until its simulated completion. Every 15 s a
-memory-only refresh exercises the known lower-control-focus regression.
+Success/completed-update notices are dismissible and expire in 5000 ms. Failures
+stay until dismissed; warnings stay until the condition resolves. Rendering keeps
+the visible item and its viewport offset, or the nearest surviving old neighbor,
+then restores focus with `preventScroll`. Creation keeps the current reading area;
+View item explicitly opens the destination List/tab and jumps to the item. Native
+viewport limits can clamp restoration at the end of a shortened page. A 15-second
+memory-only refresh exercises the original focused-lower-control regression.
 
-Every render captures the reading item's identity and viewport offset, restores
-that item or the nearest surviving old neighbor, then restores focus with
-`preventScroll`. Creation preserves reading position. View item opens List and
-explicitly jumps/focuses the destination. Details preserves position; on narrow
-screens it opens a modal. Native viewport limits can clamp restoration near the
-absolute end of a shortened page. This is demonstration code, not the production
-scroll implementation.
+The floating demo controls expose success, failure, completed update, connection
+loss/recovery, insertion above, removal, quick add, View item and reset, alongside
+relevant memory state. The same behavior is shared between D/E and Flow.
 
-Screenshots and browser exercise scripts live outside the checkout under
-`${TMPDIR:-/tmp}/mux-30-ui/`; do not commit them or attach them to the issue/PR.
-No issue or board status was changed. No PR is needed for this throwaway branch.
+Screenshots/browser exercise scripts stay outside this checkout in
+`${TMPDIR:-/tmp}/mux-30-ui/`, with D/E prefixes. No screenshot commits, PR, issue
+updates or board-status changes. No production implementation is selected yet.
 
-## Verification recorded with the prototype
+## Revision 2 verification
 
-Typecheck and all 85 existing board tests pass. No prototype tests were added.
-A real Chrome exercise checked all three directions: five-second notice expiry,
-persistent failures and warnings, recovery, insertion above, creation (quick add
-and full form), queue/start/abandon stubs, nearest surviving item, explicit View
-item, and variant/Flow URL state. Item offsets stayed within one CSS pixel
-(browser scroll-coordinate rounding). The exact 15-second lower-focus reproduction
-kept `scrollY` at 0. Board and Flow had no horizontal overflow at widths 320, 768,
-1024 and 1440. Narrow item details and keyboard suppression in inputs worked.
-Light/dark screenshots were inspected. Browser console errors: 0; non-GET
-requests: 0. The T3 preview loaded and supported early inspection, but snapshot
-failed twice with `Preview automation snapshot timed out after 15000ms.`;
-verification and screenshots used a separate local Chrome session after that.
+Typecheck passes. No production tests were added or rerun for this design-only
+revision. Real Chrome exercised D/E: 5-second success/completed-update expiry,
+failure dismissal and persistence, warning recovery, quick/full-form creation,
+insertions above, nearest surviving item after removal, explicit View item opening
+List, queue/start/abandon stubs, detail dialogs, and keyboard cycling. Screen
+offsets stayed within one CSS pixel of their original position. Both exact
+15-second lower-control-focus reproductions kept scrollY at zero.
+
+Board, open List, and Flow have no horizontal overflow at widths 320, 390, 768,
+1024, 1440 and 1920. Content spans viewport width minus edge padding. D/E Flow
+content is identical. Desktop List row height: 39px. Light/dark and narrow
+screenshots were inspected. Console errors: 0. Write requests: 0. T3 navigation
+works, but snapshot timed out twice (`Preview automation snapshot timed out after
+15000ms.`), so screenshots and interaction verification used local Chrome.
