@@ -1,0 +1,9 @@
+{
+  "project": { "owner": "maddec01", "title": "Mux" },
+  "repos": [
+    { "repo": "maddec01/mux-server", "platform": "Server" },
+    { "repo": "maddec01/mux-apple", "platform": "Apple" }
+  ],
+  "board": { "port": 4317, "refreshSeconds": 45 },
+  "limits": { "inFlight": 2, "pauseWhenNeedsYouAbove": 3 }
+}
