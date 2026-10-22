@@ -44,14 +44,7 @@ const ui: UiState = {
   ...DEFAULT_UI,
   view: location.hash === '#flow' ? 'flow' : 'board',
   toggled: {},
-  variant: new URLSearchParams(location.search).get('variant') ?? undefined,
 };
-// PROTOTYPE #59: arrow keys cycle the slice-list variant.
-document.addEventListener('keydown', (e) => {
-  const t = e.target as HTMLElement;
-  if (t.closest('input, textarea, select, [contenteditable], [role="tablist"]') || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
-  document.querySelector<HTMLAnchorElement>(`[data-proto="${e.key === 'ArrowLeft' ? 'prev' : 'next'}"]`)?.click();
-});
 
 function render(): void {
   const focusKey = (document.activeElement as HTMLElement | null)?.dataset?.focusKey;
@@ -62,6 +55,7 @@ function render(): void {
   window.scrollTo(scrollX, scrollY);
   restoreAnchor(anchor);
   if (focusKey) focusByKey(focusKey);
+  syncSlicePop();
   startToastClocks();
 }
 
@@ -148,7 +142,7 @@ function startToastClocks(): void {
 
 function tagFocusable(): void {
   // Give tabs, toggles and buttons stable keys so focus survives a re-render.
-  app.querySelectorAll<HTMLElement>('[data-view],[data-copy],[data-queue],[data-start],[data-start-result],[data-abandon],[data-add-item],[data-update],[data-dismiss],[data-view-item],details[id] > summary').forEach((el) => {
+  app.querySelectorAll<HTMLElement>('[data-view],[data-copy],[data-queue],[data-start],[data-start-result],[data-abandon],[data-add-item],[data-update],[data-dismiss],[data-view-item],[data-slices],details[id] > summary').forEach((el) => {
     el.dataset.focusKey = focusKeyOf(el);
   });
 }
@@ -160,6 +154,7 @@ function focusKeyOf(el: HTMLElement): string {
   if (el.hasAttribute('data-update')) return 'update';
   if (el.dataset.dismiss) return `dismiss-${el.dataset.dismiss}`;
   if (el.dataset.viewItem) return `view-${el.dataset.viewItem}`;
+  if (el.dataset.slices) return `slices-${el.dataset.slices}`;
   // Keyed by project item id, since a draft has no number.
   if (el.dataset.abandon) return `abandon-${el.dataset.abandon}`;
   return el.dataset.view ?? el.dataset.copy ?? (el.hasAttribute('data-add-item') ? 'add-item' : `summary-${el.parentElement?.id}`);
@@ -547,6 +542,39 @@ app.addEventListener('keydown', (event) => {
   event.preventDefault();
   setView(ui.view === 'board' ? 'flow' : 'board', true);
 });
+
+// PROTOTYPE #59: a build's slice popover opens while its progress block is hovered or
+// focused. The state lives here, not in the DOM, so a re-render reopens it in place.
+let hoveredSlices: string | null = null;
+
+function syncSlicePop(): void {
+  const focused = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('[data-slices]')?.dataset.slices ?? null;
+  const id = hoveredSlices ?? focused;
+  app.querySelectorAll<HTMLElement>('[data-slices]').forEach((el) => {
+    const open = el.dataset.slices === id;
+    if (open === el.classList.contains('open')) return;
+    el.classList.toggle('open', open);
+    if (!open) return;
+    // Open upward when the popover would run past the window's bottom and there is more room above.
+    el.classList.remove('up');
+    const block = el.getBoundingClientRect();
+    const pop = el.querySelector('.sl-pop')!.getBoundingClientRect();
+    if (pop.bottom > innerHeight && block.top > innerHeight - block.bottom) el.classList.add('up');
+  });
+}
+
+document.addEventListener('pointermove', (event) => {
+  const id = (event.target as Element).closest?.<HTMLElement>('[data-slices]')?.dataset.slices ?? null;
+  if (id === hoveredSlices) return;
+  hoveredSlices = id;
+  syncSlicePop();
+});
+document.documentElement.addEventListener('pointerleave', () => {
+  hoveredSlices = null;
+  syncSlicePop();
+});
+app.addEventListener('focusin', syncSlicePop);
+app.addEventListener('focusout', () => setTimeout(syncSlicePop));
 
 // Remember which <details> are open so a re-render keeps them that way.
 app.addEventListener(

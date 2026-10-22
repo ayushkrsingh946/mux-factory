@@ -27,8 +27,6 @@ export interface UiState {
   view: View;
   /** Open or closed, by <details> id, for the ones the user toggled since the page loaded. */
   toggled: Record<string, boolean>;
-  /** PROTOTYPE #59: which slice-list variant to show (?variant=a|b|c|now). */
-  variant?: string;
 }
 
 export interface RenderOptions {
@@ -172,14 +170,19 @@ function titleLink(item: Item, cls = 'title'): string {
 }
 
 /** Ten segments, one per status, with the item's current status highlighted. */
-export function stepBar(status: Status): string {
+/** The status bar and its label, as two cells of a `.bars` grid so a build's slice bar can line up under them. */
+function stepCells(status: Status): string {
   const at = STATUSES.indexOf(status);
   const tone = AMBER_STATUSES.includes(status) ? 'amber' : status === 'Done' ? 'done' : 'now';
   const segments = STATUSES.map((s, i) => {
     const state = i < at ? 'past' : i === at ? `cur ${tone}` : 'next';
     return `<li class="${state}" title="${esc(s)}"></li>`;
   }).join('');
-  return `<div class="stepbar"><ol class="steps" aria-hidden="true">${segments}</ol><span class="step-label ${tone}">${at + 1}/${STATUSES.length} · ${esc(status)}</span></div>`;
+  return `<ol class="segbar steps" aria-hidden="true">${segments}</ol><span class="bar-label step-label ${tone}">${at + 1}/${STATUSES.length} · ${esc(status)}</span>`;
+}
+
+export function stepBar(status: Status): string {
+  return `<div class="bars stepbar">${stepCells(status)}</div>`;
 }
 
 /** The badge after an open PR's link: running with counts and age, passed, failed, or nothing. */
@@ -209,9 +212,8 @@ function card(item: Item, data: BoardData, now: number, extra = '', action = '')
   const blocked = item.blockedBy
     ? `<span class="blocked" title="Blocked by ${plural(item.blockedBy, 'issue')}">blocked by ${item.blockedBy}</span>`
     : '';
-  const subs = kindOf(item) === 'build' && item.slices.length && protoVariant() !== 'now'
-    ? ''
-    : item.subIssues.total
+  const slices = visibleSlices(item);
+  const subs = item.subIssues.total && !slices.length
     ? `<span class="subs">${item.subIssues.completed}/${item.subIssues.total} ${subsNoun(item)}</span>`
     : '';
   const hint = HINTS[item.status];
@@ -225,22 +227,12 @@ function card(item: Item, data: BoardData, now: number, extra = '', action = '')
   return `<article class="card${AMBER_STATUSES.includes(item.status) ? ' amber' : ''}" data-anchor="${esc(item.id)}">
 <div class="meta"><span class="badges">${platformBadge(item, data)}${kindPill(item)}${blocked}${subs}</span>${action}</div>
 ${titleLink(item)}
-${parent}${stepBar(item.status)}${foot}${protoSlices(item)}${extra}
+${parent}${slices.length ? buildProgress(item, slices) : stepBar(item.status)}${foot}${extra}
 </article>`;
 }
 
 /** A build's sub-issues are its slices. */
 const subsNoun = (item: Item) => (kindOf(item) === 'build' ? 'slices' : 'sub-issues');
-
-/** A build's slices, nested like a concept's sub-issues. They aren't board items, so they have no Status. */
-function sliceList(slices: IssueRef[]): string {
-  if (!slices.length) return '';
-  const rows = slices.map((s) => {
-    const closed = s.state === 'CLOSED';
-    return `<li class="row-item slice${closed ? ' done' : ''}"><a class="row-title" href="${esc(s.url)}" title="${esc(s.title)}" target="_blank" rel="noopener"><span class="ref">#${s.number}</span> ${esc(s.title)}${closed ? '<span class="sr-only"> (closed)</span>' : ''}</a></li>`;
-  }).join('');
-  return `<ul class="sub-groups slices" aria-label="Slices"><li class="sub-group"><span class="sub-status">Slices</span><ul>${rows}</ul></li></ul>`;
-}
 
 function section(id: string, title: string, count: number, body: string, note = ''): string {
   return `<section class="section" id="${id}" aria-labelledby="${id}-h">
@@ -695,7 +687,6 @@ ${links ? `<ul class="o-links">${links}</ul>` : ''}${kidRows ? `<ul class="o-tre
 // ---------- the whole app ----------
 
 export function renderApp(data: BoardData, opts: RenderOptions): string {
-  protoUi = opts.ui;
   const { view } = opts.ui;
   const tab = (v: View, label: string) =>
     `<button type="button" role="tab" class="vtab" id="tab-${v}" data-view="${v}" aria-controls="panel-${v}" aria-selected="${view === v}" tabindex="${view === v ? 0 : -1}">${label}</button>`;
@@ -708,108 +699,32 @@ ${renderBoardView(data, opts)}
 <div class="panel" role="tabpanel" id="panel-flow" aria-labelledby="tab-flow"${view === 'flow' ? '' : ' hidden'}>
 ${renderFlowView(data, opts)}
 </div>
-</main>${protoSwitcher()}`;
+</main>`;
 }
 
-// ---------- PROTOTYPE #59: slice list variants (throwaway; see branch prototype/59-slice-card) ----------
-// Three ways to show a build's slices compactly, switchable with ?variant=a|b|c (now = today's list).
+// ---------- PROTOTYPE #59 (variant A2, picked): a build's slices as a second bar under its status bar ----------
 
-let protoUi: UiState = DEFAULT_UI;
-const PROTO_VARIANTS: [string, string][] = [
-  ['a', 'Segmented bar + active, rest folded'],
-  ['a2', 'Segmented bar, one-line Now, full list on hover'],
-  ['b', 'Capped list, active pinned, +k more'],
-  ['c', 'Numbered chips, active named'],
-  ['now', 'Current: full list'],
-];
 type SliceState = 'done' | 'active' | 'waiting';
-const sliceState = (s: IssueRef): SliceState => (s.state === 'CLOSED' ? 'done' : s.active ? 'active' : 'waiting');
+const SLICE_ORDER: SliceState[] = ['active', 'waiting', 'done'];
 const STATE_WORD: Record<SliceState, string> = { done: 'done', active: 'in progress now', waiting: 'waiting' };
-
-function protoVariant(): string {
-  const v = protoUi.variant ?? 'a';
-  return PROTO_VARIANTS.some(([k]) => k === v) ? v : 'a';
-}
-
-function protoSlices(item: Item): string {
-  const slices = item.slices.filter((s) => s.stateReason !== 'NOT_PLANNED');
-  if (!slices.length) return '';
-  const v = protoVariant();
-  if (v === 'now') return sliceList(slices);
-  if (v === 'a2') return sliceVariantA2(slices);
-  if (v === 'b') return sliceVariantB(item, slices);
-  if (v === 'c') return sliceVariantC(slices);
-  return sliceVariantA(item, slices);
-}
-
-function sliceCounts(slices: IssueRef[]): string {
-  const done = slices.filter((s) => sliceState(s) === 'done').length;
-  const active = slices.filter((s) => sliceState(s) === 'active').length;
-  return `${done}/${slices.length} slices done${active ? ` · <span class="sl-active-count">${active} active</span>` : ''}`;
-}
+const sliceState = (s: IssueRef): SliceState => (s.state === 'CLOSED' ? 'done' : s.active ? 'active' : 'waiting');
+/** Slices closed as not planned are neither shown nor counted. */
+const visibleSlices = (item: Item): IssueRef[] => item.slices.filter((s) => s.stateReason !== 'NOT_PLANNED');
 
 function sliceRow(s: IssueRef): string {
   const st = sliceState(s);
   return `<li class="row-item slice sl-${st}"><span class="sl-mark" aria-hidden="true"></span><a class="row-title" href="${esc(s.url)}" title="${esc(s.title)}" target="_blank" rel="noopener"><span class="ref">#${s.number}</span> ${esc(s.title)}<span class="sr-only"> (${STATE_WORD[st]})</span></a></li>`;
 }
 
-/** A: one bar segment per slice; only active slices listed; the full list folds into <details>. */
-function sliceVariantA(item: Item, slices: IssueRef[]): string {
-  const segs = slices.map((s) => `<li class="sl-seg sl-${sliceState(s)}" title="#${s.number} ${esc(s.title)} (${STATE_WORD[sliceState(s)]})"></li>`).join('');
+/** Status bar and slice bar as a pair, a one-line "n active" with their names, and every slice in a popover on hover or focus. */
+function buildProgress(item: Item, slices: IssueRef[]): string {
+  const segs = slices.map((s) => `<li class="sl-${sliceState(s)}"></li>`).join('');
+  const done = slices.filter((s) => sliceState(s) === 'done').length;
   const active = slices.filter((s) => sliceState(s) === 'active');
-  const id = `slices-${item.id}`;
-  const small = slices.length <= 4;
-  const all = small
-    ? `<ul class="sl-rows">${slices.map(sliceRow).join('')}</ul>`
-    : `<details class="sl-more" id="${esc(id)}"${isOpen(protoUi, id, false)}><summary>All ${slices.length} slices</summary><ul class="sl-rows">${slices.map(sliceRow).join('')}</ul></details>`;
-  return `<div class="sl sl-a"><div class="sl-head"><ol class="sl-bar" aria-hidden="true">${segs}</ol><span class="progress-label">${sliceCounts(slices)}</span></div>
-${!small && active.length ? `<ul class="sl-rows" aria-label="Active slices">${active.map(sliceRow).join('')}</ul>` : ''}${all}</div>`;
-}
-
-/** B: a list capped at 4 rows, active first, then waiting, then done; the rest behind "+k more". */
-function sliceVariantB(item: Item, slices: IssueRef[]): string {
-  const CAP = 4;
-  const order: SliceState[] = ['active', 'waiting', 'done'];
-  const sorted = [...slices].sort((a, b) => order.indexOf(sliceState(a)) - order.indexOf(sliceState(b)));
-  const shown = sorted.slice(0, CAP);
-  const rest = sorted.slice(CAP);
-  const id = `slices-${item.id}`;
-  const more = rest.length
-    ? `<details class="sl-more" id="${esc(id)}"${isOpen(protoUi, id, false)}><summary>+${rest.length} more</summary><ul class="sl-rows">${rest.map(sliceRow).join('')}</ul></details>`
-    : '';
-  return `<div class="sl sl-b"><span class="sub-status">Slices <span class="sl-count">${sliceCounts(slices)}</span></span><ul class="sl-rows">${shown.map(sliceRow).join('')}</ul>${more}</div>`;
-}
-
-/** C: one numbered chip per slice in a wrapping row (names on hover); active slices also named below. */
-function sliceVariantC(slices: IssueRef[]): string {
-  const chips = slices.map((s) => {
-    const st = sliceState(s);
-    return `<li><a class="sl-chip sl-${st}" href="${esc(s.url)}" target="_blank" rel="noopener" title="#${s.number} ${esc(s.title)} (${STATE_WORD[st]})">${s.number}<span class="sr-only"> ${esc(s.title)} (${STATE_WORD[st]})</span></a></li>`;
-  }).join('');
-  const active = slices.filter((s) => sliceState(s) === 'active');
+  const sorted = [...slices].sort((a, b) => SLICE_ORDER.indexOf(sliceState(a)) - SLICE_ORDER.indexOf(sliceState(b)));
   const now = active.length
-    ? `<p class="sl-now"><span class="sub-status">Now</span> ${active.map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener" title="${esc(s.title)}"><span class="ref">#${s.number}</span> ${esc(s.title)}</a>`).join('<span class="sl-sep">·</span>')}</p>`
+    ? `<p class="sl-now"><span class="sl-active-count">${active.length} active</span> ${active.map((s) => `<span class="ref">#${s.number}</span> ${esc(s.title)}`).join('<span class="sl-sep"> · </span>')}</p>`
     : '';
-  return `<div class="sl sl-c"><div class="sl-head"><span class="sub-status">Slices</span><span class="progress-label">${sliceCounts(slices)}</span></div><ul class="sl-chips" aria-label="Slices">${chips}</ul>${now}</div>`;
-}
-
-function protoSwitcher(): string {
-  const v = protoVariant();
-  const i = PROTO_VARIANTS.findIndex(([k]) => k === v);
-  const at = (d: number) => PROTO_VARIANTS[(i + d + PROTO_VARIANTS.length) % PROTO_VARIANTS.length]![0];
-  const label = PROTO_VARIANTS[i]!;
-  return `<nav class="proto-switch" aria-label="Prototype variant"><a href="?variant=${at(-1)}" data-proto="prev" aria-label="Previous variant">&#8592;</a><span><b>${label[0].toUpperCase()}</b> ${esc(label[1])}</span><a href="?variant=${at(1)}" data-proto="next" aria-label="Next variant">&#8594;</a></nav>`;
-}
-
-/** A2: A's bar and counts, a one-line "Now", and the full list in a hover/focus popover that floats over the board. */
-function sliceVariantA2(slices: IssueRef[]): string {
-  const segs = slices.map((s) => `<li class="sl-seg sl-${sliceState(s)}"></li>`).join('');
-  const order: SliceState[] = ['active', 'waiting', 'done'];
-  const sorted = [...slices].sort((a, b) => order.indexOf(sliceState(a)) - order.indexOf(sliceState(b)));
-  const active = slices.filter((s) => sliceState(s) === 'active');
-  const now = active.length
-    ? `<p class="sl-now1"><span class="sub-status">Now</span> ${active.map((s) => `<span class="ref">#${s.number}</span> ${esc(s.title)}`).join('<span class="sl-sep"> · </span>')}</p>`
-    : '';
-  return `<div class="sl sl-a2"><div class="sl-trigger" tabindex="0" aria-label="Slices: ${sliceCounts(slices).replace(/<[^>]+>/g, '')}. Focus to list them."><div class="sl-head"><ol class="sl-bar" aria-hidden="true">${segs}</ol><span class="progress-label">${sliceCounts(slices)}</span></div>${now}</div>
-<div class="sl-pop" role="tooltip"><ul class="sl-rows">${sorted.map(sliceRow).join('')}</ul></div></div>`;
+  return `<div class="sl-a2" tabindex="0" data-slices="${esc(item.id)}"><div class="bars">${stepCells(item.status)}<ol class="segbar sl-bar" aria-hidden="true">${segs}</ol><span class="bar-label">${done}/${slices.length} · Slices done</span></div>${now}
+<div class="sl-pop" role="tooltip" aria-label="Slices"><ul class="sl-rows">${sorted.map(sliceRow).join('')}</ul></div></div>`;
 }
