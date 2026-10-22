@@ -352,3 +352,13 @@ a.o-title:hover { text-decoration: underline; }
 .proto-switch { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 80; display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 999px; background: #111; color: #fff; font-size: 13px; box-shadow: 0 6px 20px rgb(0 0 0 / 35%); }
 .proto-switch a { color: #fff; text-decoration: none; padding: 0 8px; font-size: 16px; }
 @media (prefers-reduced-motion: reduce) { .sl-seg.sl-active, .sl-active .sl-mark, .sl-chip.sl-active { animation: none; } }
+
+/* PROTOTYPE #59 A2: hover/focus popover */
+.sl-a2 { position: relative; }
+.sl-trigger { display: grid; gap: 2px; border-radius: var(--r-control); padding: 2px 4px; margin: -2px -4px; cursor: default; }
+.sl-trigger:hover, .sl-trigger:focus-visible { background: var(--soft); outline: none; }
+.sl-now1 { margin: 0; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sl-now1 .sub-status { margin-right: 4px; }
+.sl-pop { display: none; position: absolute; top: 100%; left: -4px; margin-top: 2px; z-index: 50; width: max(100%, 300px); max-height: 280px; overflow-y: auto; padding: 6px 10px; background: var(--surface); border: 1px solid var(--bd); border-radius: var(--r); box-shadow: var(--shadow), 0 1px 3px rgb(0 0 0 / 8%); }
+.sl-a2:hover .sl-pop, .sl-a2:focus-within .sl-pop { display: block; }
+.sl-pop::before { content: ""; position: absolute; top: -8px; left: 0; right: 0; height: 8px; }

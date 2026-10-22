@@ -717,6 +717,7 @@ ${renderFlowView(data, opts)}
 let protoUi: UiState = DEFAULT_UI;
 const PROTO_VARIANTS: [string, string][] = [
   ['a', 'Segmented bar + active, rest folded'],
+  ['a2', 'Segmented bar, one-line Now, full list on hover'],
   ['b', 'Capped list, active pinned, +k more'],
   ['c', 'Numbered chips, active named'],
   ['now', 'Current: full list'],
@@ -735,6 +736,7 @@ function protoSlices(item: Item): string {
   if (!slices.length) return '';
   const v = protoVariant();
   if (v === 'now') return sliceList(slices);
+  if (v === 'a2') return sliceVariantA2(slices);
   if (v === 'b') return sliceVariantB(item, slices);
   if (v === 'c') return sliceVariantC(slices);
   return sliceVariantA(item, slices);
@@ -797,4 +799,17 @@ function protoSwitcher(): string {
   const at = (d: number) => PROTO_VARIANTS[(i + d + PROTO_VARIANTS.length) % PROTO_VARIANTS.length]![0];
   const label = PROTO_VARIANTS[i]!;
   return `<nav class="proto-switch" aria-label="Prototype variant"><a href="?variant=${at(-1)}" data-proto="prev" aria-label="Previous variant">&#8592;</a><span><b>${label[0].toUpperCase()}</b> ${esc(label[1])}</span><a href="?variant=${at(1)}" data-proto="next" aria-label="Next variant">&#8594;</a></nav>`;
+}
+
+/** A2: A's bar and counts, a one-line "Now", and the full list in a hover/focus popover that floats over the board. */
+function sliceVariantA2(slices: IssueRef[]): string {
+  const segs = slices.map((s) => `<li class="sl-seg sl-${sliceState(s)}"></li>`).join('');
+  const order: SliceState[] = ['active', 'waiting', 'done'];
+  const sorted = [...slices].sort((a, b) => order.indexOf(sliceState(a)) - order.indexOf(sliceState(b)));
+  const active = slices.filter((s) => sliceState(s) === 'active');
+  const now = active.length
+    ? `<p class="sl-now1"><span class="sub-status">Now</span> ${active.map((s) => `<span class="ref">#${s.number}</span> ${esc(s.title)}`).join('<span class="sl-sep"> · </span>')}</p>`
+    : '';
+  return `<div class="sl sl-a2"><div class="sl-trigger" tabindex="0" aria-label="Slices: ${sliceCounts(slices).replace(/<[^>]+>/g, '')}. Focus to list them."><div class="sl-head"><ol class="sl-bar" aria-hidden="true">${segs}</ol><span class="progress-label">${sliceCounts(slices)}</span></div>${now}</div>
+<div class="sl-pop" role="tooltip"><ul class="sl-rows">${sorted.map(sliceRow).join('')}</ul></div></div>`;
 }
