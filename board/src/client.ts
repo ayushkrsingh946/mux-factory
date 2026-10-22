@@ -44,7 +44,14 @@ const ui: UiState = {
   ...DEFAULT_UI,
   view: location.hash === '#flow' ? 'flow' : 'board',
   toggled: {},
+  variant: new URLSearchParams(location.search).get('variant') ?? undefined,
 };
+// PROTOTYPE #59: arrow keys cycle the slice-list variant.
+document.addEventListener('keydown', (e) => {
+  const t = e.target as HTMLElement;
+  if (t.closest('input, textarea, select, [contenteditable], [role="tablist"]') || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+  document.querySelector<HTMLAnchorElement>(`[data-proto="${e.key === 'ArrowLeft' ? 'prev' : 'next'}"]`)?.click();
+});
 
 function render(): void {
   const focusKey = (document.activeElement as HTMLElement | null)?.dataset?.focusKey;

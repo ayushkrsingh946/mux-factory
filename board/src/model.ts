@@ -52,6 +52,10 @@ export interface IssueRef {
   url: string;
   repo: string;
   state: 'OPEN' | 'CLOSED';
+  /** PROTOTYPE #59: an open slice with the `active` label. */
+  active?: boolean;
+  /** PROTOTYPE #59: closed as not planned slices are hidden. */
+  stateReason?: 'COMPLETED' | 'NOT_PLANNED';
 }
 
 /** The first issues of a GitHub link list, and how many it holds in all. */

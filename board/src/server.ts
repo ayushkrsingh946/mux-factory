@@ -323,7 +323,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     return send(res, 405, 'text/plain; charset=utf-8', 'Method not allowed\n');
   }
   if (path === '/') {
-    return send(res, 200, 'text/html; charset=utf-8', renderPage(state, { now: Date.now(), ui: DEFAULT_UI }));
+    return send(res, 200, 'text/html; charset=utf-8', renderPage(state, { now: Date.now(), ui: { ...DEFAULT_UI, variant: new URL(req.url ?? '/', 'http://localhost').searchParams.get('variant') ?? undefined } }));
   }
   if (path === '/api/board') return send(res, 200, 'application/json; charset=utf-8', JSON.stringify(state));
   if (path === '/healthz') return json(res, 200, {

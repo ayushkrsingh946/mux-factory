@@ -13,7 +13,8 @@
     "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.ts\"",
     "test:update": "UPDATE_EXPECTED=1 node --disable-warning=ExperimentalWarning --test \"test/*.test.ts\"",
     "typecheck": "tsc --noEmit -p .",
-    "sample": "BOARD_DATA_FILE=test/sample.json node --disable-warning=ExperimentalWarning src/server.ts"
+    "sample": "BOARD_DATA_FILE=test/sample.json node --disable-warning=ExperimentalWarning src/server.ts",
+    "prototype:slices": "BOARD_PORT=4318 BOARD_DATA_FILE=test/sample-slices.prototype.json node --disable-warning=ExperimentalWarning src/server.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

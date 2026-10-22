@@ -317,3 +317,38 @@ a.o-title:hover { text-decoration: underline; }
 @media (prefers-reduced-motion: reduce) {
   .anchor-flash, .toast { animation: none; }
 }
+
+/* PROTOTYPE #59: slice list variants (throwaway) */
+.sl { display: grid; gap: 4px; margin-top: 4px; }
+.sl-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sl-active-count { color: var(--thread); font-weight: 600; }
+.sl-bar { list-style: none; display: flex; gap: 2px; margin: 0; padding: 0; flex: 1 1 140px; max-width: 260px; }
+.sl-seg { flex: 1; height: 8px; border-radius: 2px; background: var(--soft); }
+.sl-seg.sl-done { background: var(--build); }
+.sl-seg.sl-active { background: var(--thread); animation: sl-pulse 1.6s ease-in-out infinite; }
+@keyframes sl-pulse { 50% { opacity: 0.45; } }
+.sl-rows { list-style: none; padding: 0; margin: 0; display: grid; gap: 1px; }
+.sl-rows .row-item { padding: 1px 0; }
+.sl-mark { flex: none; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--input); box-sizing: border-box; }
+.sl-done .sl-mark { background: var(--build); border-color: var(--build); }
+.sl-active .sl-mark { background: var(--thread); border-color: var(--thread); box-shadow: 0 0 0 3px color-mix(in srgb, var(--thread) 20%, transparent); animation: sl-pulse 1.6s ease-in-out infinite; }
+.sl-done .row-title { color: var(--muted); text-decoration: line-through; }
+.sl-active .row-title { font-weight: 600; }
+.sl-more summary { cursor: pointer; font-size: 12px; color: var(--muted); list-style: none; }
+.sl-more summary::-webkit-details-marker { display: none; }
+.sl-more summary::before { content: "\25B8  "; }
+.sl-more[open] summary::before { content: "\25BE  "; }
+.sl-more summary:hover { color: var(--fg); }
+.sl-count { text-transform: none; letter-spacing: 0; margin-left: 4px; }
+.sl-chips { list-style: none; display: flex; flex-wrap: wrap; gap: 3px; margin: 0; padding: 0; }
+.sl-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 18px; padding: 0 4px; border-radius: var(--r-sm); font-size: 10px; font-weight: 500; font-variant-numeric: tabular-nums; text-decoration: none; background: var(--soft); color: var(--muted); border: 1px solid transparent; }
+.sl-chip.sl-done { background: color-mix(in srgb, var(--build) 14%, transparent); color: var(--success-fg); }
+.sl-chip.sl-active { background: var(--thread); color: var(--primary-fg); animation: sl-pulse 1.6s ease-in-out infinite; }
+.sl-chip:hover { border-color: var(--fg); }
+.sl-now { margin: 0; font-size: 12px; display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: baseline; }
+.sl-now a { text-decoration: none; font-weight: 600; }
+.sl-now a:hover { text-decoration: underline; }
+.sl-sep { color: var(--muted); }
+.proto-switch { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 80; display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 999px; background: #111; color: #fff; font-size: 13px; box-shadow: 0 6px 20px rgb(0 0 0 / 35%); }
+.proto-switch a { color: #fff; text-decoration: none; padding: 0 8px; font-size: 16px; }
+@media (prefers-reduced-motion: reduce) { .sl-seg.sl-active, .sl-active .sl-mark, .sl-chip.sl-active { animation: none; } }
