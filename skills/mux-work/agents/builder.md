@@ -47,12 +47,16 @@ catalogue. Read each file or skill a step names only when that step runs.
    per **Implementer** in `<mux-work>/orchestration.md`, and track it by its
    `taskId`. Give it `implementer.md`, the slice reference and the build
    branch, and add `active` to the slice (**Slices** in
-   `<mux-work>/issue-tracker.md`).
-4. **Merge.** As each implementer reports, run
-   `git merge --ff-only slice/<n>-<m>-<slug>` here; if it can't fast-forward,
-   send a subagent to the implementer's reported worktree path to rebase onto
-   the build branch tip, then merge again. A finished child task leaves its
-   worktree behind, so after each merge run the **cleanup**, remove `active`
+   `<mux-work>/issue-tracker.md`). When a worker's summary says work is still
+   running, or the worker goes quiet, inspect its worktree (new commits,
+   uncommitted changes) and its running processes before waiting, then act on
+   what's found.
+4. **Merge.** As each implementer reports, cancel the slice's worker task
+   (`task_cancel <taskId>`) before the fast-forward so no queued turn can
+   commit afterwards. Run `git merge --ff-only slice/<n>-<m>-<slug>` here;
+   if it can't fast-forward, send a subagent to the implementer's reported
+   worktree path to rebase onto the build branch tip, then merge again. A
+   finished child task leaves its worktree behind, so after each merge run the **cleanup**, remove `active`
    and close the slice sub-issue (**Slices** in
    `<mux-work>/issue-tracker.md`), and run **Implement** again. A slice
    reported blocked gets the **forced cleanup**, loses `active` and goes back
