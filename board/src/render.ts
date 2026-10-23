@@ -388,7 +388,7 @@ function actionError(item: Item, action: ItemAction | undefined): string {
 
 /** Board writes are off in sample mode, so its buttons are too. */
 function writeState(data: BoardData, action: ItemAction | undefined): string {
-  if (data.capture?.enabled === false) return ' disabled title="Disabled in sample mode"';
+  if (data.capture?.enabled === false && !data.proto) return ' disabled title="Disabled in sample mode"';
   return action?.phase === 'pending' || data.update?.state === 'running' ? ' aria-disabled="true"' : '';
 }
 
@@ -644,14 +644,42 @@ export function renderBoardView(data: BoardData, opts: RenderOptions): string {
     .filter((i) => isRecentlyDone(i, now))
     .sort((a, b) => (b.closedAt ?? b.updatedAt).localeCompare(a.closedAt ?? a.updatedAt));
 
+  // PROTOTYPE #120: Back to List and Abandon on Queued cards, laid out per data.proto (A, B or C).
+  const variant = data.proto ?? 'A';
+  const unstarted = (i: Item) => {
+    const action = opts.actions?.[i.id];
+    return !(data.started?.[i.id] ?? (action?.phase === 'started' ? action.thread : undefined)) && action?.phase !== 'uncertain';
+  };
+  const label = (verb: string, i: Item) => `aria-label="${verb} ${esc(ref(i))} ${esc(i.title)}"`;
+  const backButton = (i: Item, cls: string, text = 'Back to List') =>
+    `<button type="button" class="${cls}" data-proto-back="${esc(i.id)}" ${label('Back to List', i)}${writeState(data, opts.actions?.[i.id])}>${text}</button>`;
+  const dropButton = (i: Item, cls: string) =>
+    `<button type="button" class="${cls}" data-abandon="${esc(i.id)}" ${label('Abandon', i)}${writeState(data, opts.actions?.[i.id])}>Abandon</button>`;
+  // A: inline, styled like List rows' Queue/Abandon, before Start.
+  const inlineActions = (i: Item) =>
+    unstarted(i) ? backButton(i, 'copy row-action') + dropButton(i, 'copy row-action abandon') : '';
+  // B: a quiet row along the card's foot, Abandon pushed to the far end.
+  const quietRow = (i: Item) =>
+    unstarted(i)
+      ? `<div class="proto-quiet">${backButton(i, 'proto-link', '\u2190 Back to List')}${dropButton(i, 'proto-link proto-danger')}</div>`
+      : '';
+  // C: an overflow menu holding both.
+  const overflow = (i: Item) =>
+    unstarted(i)
+      ? `<details class="proto-menu"><summary class="copy copy-icon" aria-label="More actions for ${esc(ref(i))}" title="More actions">\u2026</summary><div class="proto-pop" role="menu">${backButton(i, 'proto-item')}${dropButton(i, 'proto-item proto-danger')}</div></details>`
+      : '';
+
   const queuedExtra = (i: Item) =>
-    workMessage(i)
+    (workMessage(i)
       ? startControl(i, data, opts.actions?.[i.id]).message
-      : '<p class="foot"><span class="hint">This draft needs an issue before it can start. Convert it to an issue in a repo.</span></p>';
+      : '<p class="foot"><span class="hint">This draft needs an issue before it can start. Convert it to an issue in a repo.</span></p>') +
+    (variant === 'B' ? quietRow(i) : '');
   // One group, so the icon and Start stay together in the card's top-right corner.
   const queuedAction = (i: Item) => {
     const message = workMessage(i);
-    return message ? `<span class="start-group">${copyWorkMessage(i, message)}${startControl(i, data, opts.actions?.[i.id]).button}</span>` : '';
+    const extra = variant === 'A' ? inlineActions(i) : variant === 'C' ? overflow(i) : '';
+    const start = message ? `${copyWorkMessage(i, message)}${variant === 'A' ? extra : ''}${startControl(i, data, opts.actions?.[i.id]).button}${variant === 'C' ? extra : ''}` : extra;
+    return start ? `<span class="start-group">${start}</span>` : '';
   };
 
   const platforms = [...data.repos.map((r) => r.platform)];

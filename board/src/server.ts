@@ -43,6 +43,10 @@ const state: BoardData = {
   fetchedAt: null,
   error: null,
   items: [],
+  // PROTOTYPE #120: BOARD_PROTO_VARIANT picks the Queued-card layout and fakes one started card.
+  ...(process.env.BOARD_PROTO_VARIANT
+    ? { proto: process.env.BOARD_PROTO_VARIANT, started: { PVTI_sample06: { threadId: 'proto-thread', title: 'Prototype thread' } } }
+    : {}),
 };
 
 const statsSources: StatsSources = { db: statsDbPath(), settings: t3SettingsPath(), rates: usageRatesPath(), home: homedir() };

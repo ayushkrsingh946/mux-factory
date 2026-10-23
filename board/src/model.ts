@@ -193,6 +193,8 @@ export interface BoardData {
   items: Item[];
   /** Threads this board run started, by item id, so every page shows them. */
   started?: Record<string, StartedThread>;
+  /** PROTOTYPE #120: which Queued-card action layout to show (A, B or C). */
+  proto?: string;
   /** The latest update of this checkout, from the button or a terminal; null on boards that can't update. */
   update?: UpdateProgress | null;
 }

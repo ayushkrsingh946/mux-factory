@@ -32,7 +32,7 @@ ${renderApp(data, opts)}
 </div>
 ${renderAddItemForm(data)}
 ${renderAbandonDialog()}
-<div id="copy-status" class="sr-only" role="status" aria-live="polite"></div>
+${data.proto ? `<div class="proto-tag">Prototype #120 — variant ${data.proto === 'B' ? 'B · Quiet footer row' : data.proto === 'C' ? 'C · Overflow menu' : 'A · Inline buttons'}</div>\n` : ''}<div id="copy-status" class="sr-only" role="status" aria-live="polite"></div>
 <script id="board-data" type="application/json">${scriptJson(data)}</script>
 <script type="module" src="/assets/client.ts"></script>
 </body>
