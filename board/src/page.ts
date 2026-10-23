@@ -14,9 +14,18 @@ function scriptJson(value: unknown): string {
   return JSON.stringify(value).replaceAll('<', '\\u003c');
 }
 
+/** PROTOTYPE #120: a fixed A/B/C picker that switches the Queued-card layout live, kept in ?variant=. */
+function protoPicker(): string {
+  const opts = [['A', 'Inline buttons'], ['B', 'Quiet footer row'], ['C', 'Overflow menu']];
+  return `<div class="proto-picker" role="radiogroup" aria-label="Prototype #120 layout"><span>#120 layout</span>${opts
+    .map(([k, name]) => `<button type="button" role="radio" data-variant="${k}" title="${name}"><b>${k}</b> ${name}</button>`)
+    .join('')}</div>
+`;
+}
+
 export function renderPage(data: BoardData, opts: RenderOptions): string {
   return `<!doctype html>
-<html lang="en">
+<html lang="en"${data.proto ? ` data-proto="${data.proto}"` : ''}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -32,7 +41,7 @@ ${renderApp(data, opts)}
 </div>
 ${renderAddItemForm(data)}
 ${renderAbandonDialog()}
-${data.proto ? `<div class="proto-tag">Prototype #120 — variant ${data.proto === 'B' ? 'B · Quiet footer row' : data.proto === 'C' ? 'C · Overflow menu' : 'A · Inline buttons'}</div>\n` : ''}<div id="copy-status" class="sr-only" role="status" aria-live="polite"></div>
+${data.proto ? protoPicker() : ''}<div id="copy-status" class="sr-only" role="status" aria-live="polite"></div>
 <script id="board-data" type="application/json">${scriptJson(data)}</script>
 <script type="module" src="/assets/client.ts"></script>
 </body>

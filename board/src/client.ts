@@ -220,7 +220,7 @@ function followUpdate(): boolean {
 
 function setView(view: View, focus = false): void {
   ui.view = view;
-  history.replaceState(null, '', view === 'flow' ? '#flow' : location.pathname);
+  history.replaceState(null, '', view === 'flow' ? location.search + '#flow' : location.pathname + location.search);
   render();
   if (focus) app.querySelector<HTMLElement>(`[data-view="${view}"]`)?.focus();
 }
@@ -639,3 +639,20 @@ else {
 resetDraft();
 followUpdate();
 schedulePoll();
+
+// PROTOTYPE #120: the A/B/C picker switches the Queued-card layout live and keeps it in ?variant=.
+const protoPicker = document.querySelector<HTMLElement>('.proto-picker');
+if (protoPicker) {
+  const setVariant = (v: string | null | undefined, push: boolean) => {
+    if (!v || !['A', 'B', 'C'].includes(v)) return;
+    document.documentElement.dataset.proto = v;
+    for (const b of protoPicker.querySelectorAll<HTMLElement>('[data-variant]')) b.setAttribute('aria-checked', String(b.dataset.variant === v));
+    if (push) {
+      const url = new URL(location.href);
+      url.searchParams.set('variant', v);
+      history.replaceState(history.state, '', url);
+    }
+  };
+  setVariant(new URLSearchParams(location.search).get('variant') ?? document.documentElement.dataset.proto, false);
+  protoPicker.addEventListener('click', (e) => setVariant((e.target as Element).closest<HTMLElement>('[data-variant]')?.dataset.variant, true));
+}

@@ -351,7 +351,7 @@ a.o-title:hover { text-decoration: underline; }
   .anchor-flash, .toast, .slice-bar li.active { animation: none; }
 }
 
-/* PROTOTYPE #120: Queued-card actions, variants B and C, plus the variant tag. */
+/* PROTOTYPE #120: Queued-card actions for variants A, B and C, plus the layout picker. */
 .proto-quiet { display: flex; align-items: center; gap: 12px; margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--bd); font-size: 11px; }
 .proto-link { background: none; border: 0; padding: 0; font: inherit; color: var(--muted); cursor: pointer; }
 .proto-link:hover { color: var(--fg); text-decoration: underline; }
@@ -364,4 +364,12 @@ a.o-title:hover { text-decoration: underline; }
 .proto-item { background: none; border: 0; text-align: left; padding: 6px 8px; font: inherit; font-size: 12px; color: var(--fg); border-radius: 4px; cursor: pointer; }
 .proto-item:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
 .proto-item.proto-danger { color: var(--danger-text); }
-.proto-tag { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 50; padding: 4px 10px; border-radius: 999px; background: #111; color: #fff; font: 12px system-ui; }
+.proto-v { display: none; }
+html[data-proto="A"] .proto-vA { display: contents; }
+html[data-proto="B"] .proto-vB { display: flex; }
+html[data-proto="C"] .proto-vC { display: inline-block; }
+.proto-picker { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 100; display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 10px; background: #111; color: #fff; font: 12px system-ui; box-shadow: 0 4px 14px rgb(0 0 0 / 0.3); }
+.proto-picker > span { padding: 0 8px; opacity: 0.7; }
+.proto-picker button { font: inherit; color: #ddd; background: none; border: 0; padding: 5px 10px; border-radius: 7px; cursor: pointer; }
+.proto-picker button:hover { background: #333; color: #fff; }
+.proto-picker button[aria-checked="true"] { background: #fff; color: #111; }

@@ -644,8 +644,8 @@ export function renderBoardView(data: BoardData, opts: RenderOptions): string {
     .filter((i) => isRecentlyDone(i, now))
     .sort((a, b) => (b.closedAt ?? b.updatedAt).localeCompare(a.closedAt ?? a.updatedAt));
 
-  // PROTOTYPE #120: Back to List and Abandon on Queued cards, laid out per data.proto (A, B or C).
-  const variant = data.proto ?? 'A';
+  // PROTOTYPE #120: Back to List and Abandon on Queued cards. All three layouts render; the
+  // page's picker shows one via html[data-proto]. Queued cards drop the copy button (#116).
   const unstarted = (i: Item) => {
     const action = opts.actions?.[i.id];
     return !(data.started?.[i.id] ?? (action?.phase === 'started' ? action.thread : undefined)) && action?.phase !== 'uncertain';
@@ -657,29 +657,26 @@ export function renderBoardView(data: BoardData, opts: RenderOptions): string {
     `<button type="button" class="${cls}" data-abandon="${esc(i.id)}" ${label('Abandon', i)}${writeState(data, opts.actions?.[i.id])}>Abandon</button>`;
   // A: inline, styled like List rows' Queue/Abandon, before Start.
   const inlineActions = (i: Item) =>
-    unstarted(i) ? backButton(i, 'copy row-action') + dropButton(i, 'copy row-action abandon') : '';
+    `<span class="proto-v proto-vA">${backButton(i, 'copy row-action')}${dropButton(i, 'copy row-action abandon')}</span>`;
   // B: a quiet row along the card's foot, Abandon pushed to the far end.
   const quietRow = (i: Item) =>
-    unstarted(i)
-      ? `<div class="proto-quiet">${backButton(i, 'proto-link', '\u2190 Back to List')}${dropButton(i, 'proto-link proto-danger')}</div>`
-      : '';
-  // C: an overflow menu holding both.
+    `<div class="proto-quiet proto-v proto-vB">${backButton(i, 'proto-link', '\u2190 Back to List')}${dropButton(i, 'proto-link proto-danger')}</div>`;
+  // C: an overflow menu after Start holding both.
   const overflow = (i: Item) =>
-    unstarted(i)
-      ? `<details class="proto-menu"><summary class="copy copy-icon" aria-label="More actions for ${esc(ref(i))}" title="More actions">\u2026</summary><div class="proto-pop" role="menu">${backButton(i, 'proto-item')}${dropButton(i, 'proto-item proto-danger')}</div></details>`
-      : '';
+    `<details class="proto-menu proto-v proto-vC"><summary class="copy copy-icon" aria-label="More actions for ${esc(ref(i))}" title="More actions">\u2026</summary><div class="proto-pop" role="menu">${backButton(i, 'proto-item')}${dropButton(i, 'proto-item proto-danger')}</div></details>`;
 
   const queuedExtra = (i: Item) =>
     (workMessage(i)
       ? startControl(i, data, opts.actions?.[i.id]).message
       : '<p class="foot"><span class="hint">This draft needs an issue before it can start. Convert it to an issue in a repo.</span></p>') +
-    (variant === 'B' ? quietRow(i) : '');
-  // One group, so the icon and Start stay together in the card's top-right corner.
+    (data.proto && unstarted(i) ? quietRow(i) : '');
+  // One group, so the actions and Start stay together in the card's top-right corner.
   const queuedAction = (i: Item) => {
     const message = workMessage(i);
-    const extra = variant === 'A' ? inlineActions(i) : variant === 'C' ? overflow(i) : '';
-    const start = message ? `${copyWorkMessage(i, message)}${variant === 'A' ? extra : ''}${startControl(i, data, opts.actions?.[i.id]).button}${variant === 'C' ? extra : ''}` : extra;
-    return start ? `<span class="start-group">${start}</span>` : '';
+    const proto = data.proto && unstarted(i);
+    const start = message ? startControl(i, data, opts.actions?.[i.id]).button : '';
+    const group = `${proto ? inlineActions(i) : ''}${start}${proto ? overflow(i) : ''}`;
+    return group ? `<span class="start-group">${group}</span>` : '';
   };
 
   const platforms = [...data.repos.map((r) => r.platform)];
