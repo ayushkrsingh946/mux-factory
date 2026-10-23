@@ -9,10 +9,11 @@ import { homedir } from 'node:os';
 import { stripTypeScriptTypes } from 'node:module';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { expandHome, loadConfig } from './config.ts';
+import { loadConfig } from './config.ts';
 import { abandonItem, addProjectItem, editPrBody, fetchProject, findProjectNumber, readPrBody, setItemStatus } from './github.ts';
 import { validateDraft } from './add-item.ts';
 import { startThread } from './t3.ts';
+import { repositoryProject } from './repository-project.ts';
 import { loadItemStats, statsDbPath, t3SettingsPath, usageRatesPath } from './item-stats.ts';
 import type { StatsSources } from './item-stats.ts';
 import { mergedStats, prStatsEdits, updatedBody } from './pr-stats.ts';
@@ -279,14 +280,12 @@ async function startItem(req: IncomingMessage, res: ServerResponse): Promise<voi
     if (!item) return json(res, 404, { error: 'That item is no longer on the board.' });
     if (item.status !== 'Queued') return json(res, 409, { error: `Only Queued items can be started; this one is in ${item.status}.` });
     const message = workMessage(item);
-    if (!message) return json(res, 409, { error: 'This item needs an issue before it can start.' });
-    if (!config.t3Project) return json(res, 503, { error: 'Set board.t3Project in config.json to start threads.' });
-    let project: string;
-    try { project = expandHome(config.t3Project, process.env.HOME); }
-    catch (err) { return json(res, 503, { error: (err as Error).message }); }
-    // Only a failure t3 reported may run again; a started or unconfirmed thread is kept.
+    if (!message || !item.repo) return json(res, 409, { error: 'This item needs an issue before it can start.' });
+    // Only a refusal or a failure t3 reported may run again; a started or unconfirmed thread is kept.
     runningStarts++;
-    pending = startThread(project, message).then((result) => {
+    pending = repositoryProject(item.repo, config.repos).then((project): Promise<StartResult> | StartResult =>
+      project.error === undefined ? startThread(project.projectId, message) : { thread: null, error: project.error },
+    ).then((result) => {
       if (result.thread) state.started = { ...state.started, [itemId]: result.thread };
       else if (!result.uncertain) starts.delete(itemId);
       return result;
